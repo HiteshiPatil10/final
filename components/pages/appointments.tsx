@@ -1,6 +1,9 @@
 "use client"
 
 import { useState } from "react"
+import { supabase } from "@/lib/supabaseClient"
+import { useEffect } from "react"
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -19,10 +22,16 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog"
-import { appointments, barbers, services } from "@/lib/data"
+
 import { Search, Filter, Plus, CalendarDays, Phone, X } from "lucide-react"
 
+
+
 export function AppointmentsPage() {
+  
+  const [appointments, setAppointments] = useState<any[]>([])
+  const [barbers, setBarbers] = useState<any[]>([])
+  const [services, setServices] = useState<any[]>([])
   const [search, setSearch] = useState("")
   const [filterBarber, setFilterBarber] = useState("all")
   const [filterStatus, setFilterStatus] = useState("all")
@@ -36,14 +45,76 @@ export function AppointmentsPage() {
     date: "2026-02-13",
     time: "10:00",
   })
+  function getCurrentDateTime() {
+  const now = new Date()
+
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, "0")
+  const day = String(now.getDate()).padStart(2, "0")
+
+  const date = `${year}-${month}-${day}`
+
+  const hours = String(now.getHours()).padStart(2, "0")
+  const minutes = String(now.getMinutes()).padStart(2, "0")
+
+  const time = `${hours}:${minutes}`
+
+  return { date, time }
+}
+
+
+  useEffect(() => {
+  fetchData()
+}, [])
+
+  async function fetchData() {
+  const { data: appointmentsData } = await supabase
+    .from("appointments")
+    .select(`
+      *,
+      barbers(name),
+      services(name, price)
+    `)
+
+  const { data: barbersData } = await supabase
+    .from("barbers")
+    .select("*")
+
+  const { data: servicesData } = await supabase
+    .from("services")
+    .select("*")
+
+  setAppointments(appointmentsData || [])
+  setBarbers(barbersData || [])
+  setServices(servicesData || [])
+}
+    useEffect(() => {
+  const channel = supabase
+    .channel("appointments-changes")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "appointments" },
+      () => {
+        fetchData()
+      }
+    )
+    .subscribe()
+
+  return () => {
+    supabase.removeChannel(channel)
+  }
+}, [])
+
+
 
   const filtered = appointments.filter((a) => {
-    if (search && !a.clientName.toLowerCase().includes(search.toLowerCase())) return false
-    if (filterBarber !== "all" && a.barberId !== filterBarber) return false
-    if (filterStatus !== "all" && a.status !== filterStatus) return false
-    if (filterService !== "all" && a.service !== filterService) return false
-    return true
-  })
+  if (search && !a.client_name?.toLowerCase().includes(search.toLowerCase())) return false
+  if (filterBarber !== "all" && a.barber_id !== filterBarber) return false
+  if (filterStatus !== "all" && a.status !== filterStatus) return false
+  if (filterService !== "all" && a.service_id !== filterService) return false
+  return true
+})
+
 
   const statusBadge = (status: string) => {
     const map: Record<string, string> = {
@@ -64,15 +135,39 @@ export function AppointmentsPage() {
     return map[status] || ""
   }
 
-  function handleAddAppointment() {
-    if (newAppt.clientName && newAppt.service && newAppt.barberId) {
-      alert(
-        `Appointment booked for ${newAppt.clientName} with ${barbers.find((b) => b.id === newAppt.barberId)?.name} on ${newAppt.date} at ${newAppt.time}`
-      )
-      setShowAddModal(false)
-      setNewAppt({ clientName: "", clientPhone: "", service: "", barberId: "", date: "2026-02-13", time: "10:00" })
-    }
+  async function handleAddAppointment() {
+  if (!newAppt.clientName || !newAppt.service || !newAppt.barberId) return
+
+  const selectedService = services.find(
+  (s) => String(s.id) === newAppt.service
+)
+
+
+  if (!selectedService) return
+
+  const totalSlots = selectedService.duration_minutes / 30
+
+  const { error } = await supabase.from("appointments").insert([
+    {
+      client_name: newAppt.clientName,
+      client_phone: newAppt.clientPhone,
+      barber_id: newAppt.barberId,
+      service_id: newAppt.service,
+      date: newAppt.date,
+      start_time: newAppt.time,
+      total_slots: totalSlots,
+      amount: selectedService.price,
+    },
+  ])
+
+  
+
+  if (!error) {
+    fetchData()
+    setShowAddModal(false)
   }
+}
+
 
   return (
     <div className="flex flex-col gap-6">
@@ -84,9 +179,23 @@ export function AppointmentsPage() {
           </p>
         </div>
         <Button
-          className="bg-primary text-primary-foreground hover:bg-primary/90"
-          onClick={() => setShowAddModal(true)}
-        >
+  className="bg-primary text-primary-foreground hover:bg-primary/90"
+  onClick={() => {
+    const { date, time } = getCurrentDateTime()
+
+    setNewAppt({
+      clientName: "",
+      clientPhone: "",
+      service: "",
+      barberId: "",
+      date,
+      time,
+    })
+
+    setShowAddModal(true)
+  }}
+>
+
           <Plus className="mr-2 h-4 w-4" />
           New Appointment
         </Button>
@@ -134,7 +243,8 @@ export function AppointmentsPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Services</SelectItem>
-              {[...new Set(appointments.map((a) => a.service))].map((s) => (
+              {[...new Set(appointments.map((a) => a.services?.name).filter(Boolean))]
+.map((s) => (
                 <SelectItem key={s} value={s}>{s}</SelectItem>
               ))}
             </SelectContent>
@@ -173,20 +283,21 @@ export function AppointmentsPage() {
                   <td className="px-3 py-3">
                     <div className="flex items-center gap-2">
                       <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
-                        {apt.clientName.split(" ").map((n) => n[0]).join("")}
+                        {apt.client_name?.split(" ").map((n: string) => n[0]).join("")}
                       </div>
-                      <span className="text-sm font-medium text-foreground">{apt.clientName}</span>
+                      <span className="text-sm font-medium text-foreground">{apt.client_name}</span>
                     </div>
                   </td>
-                  <td className="px-3 py-3 text-sm text-muted-foreground">{apt.clientPhone}</td>
-                  <td className="px-3 py-3 text-sm text-foreground">{apt.service}</td>
-                  <td className="px-3 py-3 text-sm text-foreground">{apt.barberName}</td>
-                  <td className="px-3 py-3 text-sm text-muted-foreground">{apt.date} {apt.time}</td>
+                  <td className="px-3 py-3 text-sm text-muted-foreground">{apt.client_phone}</td>
+                  <td className="px-3 py-3 text-sm text-foreground">{apt.services?.name}</td>
+                  <td className="px-3 py-3 text-sm text-foreground">{apt.barbers?.name}
+</td>
+                  <td className="px-3 py-3 text-sm text-muted-foreground">{apt.date} {apt.start_time}</td>
                   <td className="px-3 py-3">
                     <Badge className={`${statusBadge(apt.status)} text-xs`}>{apt.status}</Badge>
                   </td>
                   <td className="px-3 py-3">
-                    <Badge className={`${paymentBadge(apt.paymentStatus)} text-xs`}>{apt.paymentStatus}</Badge>
+                    <Badge className={`${paymentBadge(apt.payment_status)} text-xs`}>{apt.payment_status}</Badge>
                   </td>
                   <td className="px-3 py-3 text-right text-sm font-medium text-foreground">
                     ₹{apt.amount.toLocaleString()}
@@ -206,7 +317,7 @@ export function AppointmentsPage() {
 
       {/* Add Appointment Dialog */}
       <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
-        <DialogContent className="border-border bg-card sm:max-w-lg">
+        <DialogContent className="border-border bg-card sm:max-w-lg max-h-[80vh] overflow-visible">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 font-serif">
               <Plus className="h-5 w-5 text-primary" />
@@ -237,16 +348,23 @@ export function AppointmentsPage() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Service</label>
-                <Select value={newAppt.service} onValueChange={(v) => setNewAppt({ ...newAppt, service: v })}>
+                <Select value={(newAppt.service)} onValueChange={(v) => setNewAppt({ ...newAppt, service: v })}>
                   <SelectTrigger className="border-border bg-background">
                     <SelectValue placeholder="Select service" />
                   </SelectTrigger>
-                  <SelectContent>
-                    {services.filter((s) => s.active).map((s) => (
-                      <SelectItem key={s.id} value={s.name}>
-                        {s.name} (₹{s.price})
-                      </SelectItem>
-                    ))}
+                  <SelectContent
+  position="item-aligned"
+  className="z-50"
+>
+
+
+                    {services.map((s) => (
+  <SelectItem key={s.id} value={String(s.id)}>
+    {s.name} (₹{s.price})
+  </SelectItem>
+))}
+
+
                   </SelectContent>
                 </Select>
               </div>
@@ -257,9 +375,12 @@ export function AppointmentsPage() {
                     <SelectValue placeholder="Select barber" />
                   </SelectTrigger>
                   <SelectContent>
-                    {barbers.filter((b) => b.status === "present").map((b) => (
-                      <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
-                    ))}
+                    {barbers.filter((b) => b.is_active).map((b) => (
+  <SelectItem key={b.id} value={b.id}>
+    {b.name}
+  </SelectItem>
+))}
+
                   </SelectContent>
                 </Select>
               </div>
