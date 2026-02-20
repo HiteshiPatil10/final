@@ -95,6 +95,7 @@ function generateTimeSlots() {
 }, [])
 
   async function fetchData() {
+    
   const { data: appointmentsData } = await supabase
     .from("appointments")
     .select(`
@@ -114,6 +115,22 @@ function generateTimeSlots() {
   setAppointments(appointmentsData || [])
   setBarbers(barbersData || [])
   setServices(servicesData || [])
+}
+async function updateStatus(id: string, newStatus: string) {
+  const { error } = await supabase
+    .from("appointments")
+    .update({ status: newStatus })
+    .eq("id", id)
+
+  if (!error) fetchData()
+}
+async function updatePayment(id: string, newStatus: string) {
+  const { error } = await supabase
+    .from("appointments")
+    .update({ payment_status: newStatus })
+    .eq("id", id)
+
+  if (!error) fetchData()
 }
     useEffect(() => {
   const channel = supabase
@@ -340,12 +357,42 @@ console.log("Barber ID:", newAppt.barberId)
                   <td className="px-3 py-3 text-sm text-foreground">{apt.services?.name}</td>
                   <td className="px-3 py-3 text-sm text-foreground">{apt.barbers?.name}
 </td>
-                  <td className="px-3 py-3 text-sm text-muted-foreground">{apt.date} {apt.start_time}</td>
+                  <td className="px-3 py-3 text-sm text-muted-foreground">
+  {apt.appointment_date}{" "}
+  {new Date(`1970-01-01T${apt.appointment_time}`).toLocaleTimeString(
+    "en-US",
+    { hour: "numeric", minute: "2-digit", hour12: true }
+  )}
+</td>
                   <td className="px-3 py-3">
-                    <Badge className={`${statusBadge(apt.status)} text-xs`}>{apt.status}</Badge>
+                    <Select
+  value={apt.status}
+  onValueChange={(value) => updateStatus(apt.id, value)}
+>
+  <SelectTrigger className="w-[130px]">
+    <SelectValue />
+  </SelectTrigger>
+  <SelectContent>
+    <SelectItem value="upcoming">Upcoming</SelectItem>
+    <SelectItem value="completed">Completed</SelectItem>
+    <SelectItem value="cancelled">Cancelled</SelectItem>
+    <SelectItem value="no_show">No Show</SelectItem>
+  </SelectContent>
+</Select>
                   </td>
                   <td className="px-3 py-3">
-                    <Badge className={`${paymentBadge(apt.payment_status)} text-xs`}>{apt.payment_status}</Badge>
+                    <Select
+  value={apt.payment_status || "pending"}
+  onValueChange={(value) => updatePayment(apt.id, value)}
+>
+  <SelectTrigger className="w-[120px]">
+    <SelectValue />
+  </SelectTrigger>
+  <SelectContent>
+    <SelectItem value="pending">Pending</SelectItem>
+    <SelectItem value="paid">Paid</SelectItem>
+  </SelectContent>
+</Select>
                   </td>
                   <td className="px-3 py-3 text-right text-sm font-medium text-foreground">
                     ₹{apt.amount.toLocaleString()}
