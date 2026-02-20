@@ -163,53 +163,58 @@ function generateTimeSlots() {
   }
 
   async function handleAddAppointment() {
-  if (!newAppt.clientName || !newAppt.service || !newAppt.barberId) {
-    alert("Please fill required fields")
-    return
+    console.log("Service ID:", newAppt.service)
+console.log("Barber ID:", newAppt.barberId)
+  try {
+    if (!newAppt.clientName || !newAppt.service || !newAppt.barberId) {
+      alert("Please fill all required fields")
+      return
+    }
+
+    const selectedService = services.find(
+      (s) => String(s.id) === String(newAppt.service)
+    )
+
+    if (!selectedService) {
+      alert("Invalid service selected")
+      return
+    }
+
+    const totalSlots = Math.floor(selectedService.duration_minutes / 30)
+
+    const { data, error } = await supabase
+      .from("appointments")
+      .insert([
+        {
+          service_id: newAppt.service,
+          barber_id: newAppt.barberId,
+          appointment_date: newAppt.date,
+          appointment_time: newAppt.time,
+          client_name: newAppt.clientName,
+          client_phone: newAppt.clientPhone || null,
+          total_slots: totalSlots,
+          amount: selectedService.price,
+          status: "upcoming",              // REQUIRED
+          payment_status: "pending"        // optional but good
+        }
+      ])
+      .select()
+
+    if (error) {
+      console.error(error)
+      alert("Insert failed: " + error.message)
+      return
+    }
+
+    fetchData()
+    setShowAddModal(false)
+
+  } catch (err) {
+    console.error(err)
+    alert("Unexpected error")
   }
-
-  const selectedService = services.find(
-    (s) => String(s.id) === String(newAppt.service)
-  )
-
-  if (!selectedService) {
-    alert("Service not found")
-    return
-  }
-
-  const totalSlots =
-    selectedService.duration_minutes
-      ? selectedService.duration_minutes / 30
-      : 1
-
-  const { error } = await supabase
-    .from("appointments")
-    .insert([
-      {
-        client_name: newAppt.clientName,
-        client_phone: newAppt.clientPhone || "",
-        barber_id: newAppt.barberId,
-        service_id: newAppt.service,
-        date: newAppt.date,
-        start_time: newAppt.time,
-        total_slots: totalSlots,
-        amount: selectedService.price || 0,
-
-        // 🔥 IMPORTANT — ye 2 missing the
-        status: "upcoming",
-        payment_status: "pending",
-      },
-    ])
-
-  if (error) {
-    console.log(error)
-    alert(error.message)
-    return
-  }
-
-  fetchData()
-  setShowAddModal(false)
 }
+
 
 
   return (
