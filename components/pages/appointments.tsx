@@ -42,10 +42,10 @@ export function AppointmentsPage() {
     clientPhone: "",
     service: "",
     barberId: "",
-    date: "2026-02-13",
-    time: "10:00",
+    date: getCurrentDateTime().date,
+    time: getCurrentDateTime().time,
   })
-  function getCurrentDateTime() {
+ function getCurrentDateTime() {
   const now = new Date()
 
   const year = now.getFullYear()
@@ -60,6 +60,33 @@ export function AppointmentsPage() {
   const time = `${hours}:${minutes}`
 
   return { date, time }
+}
+
+
+function generateTimeSlots() {
+  const slots = []
+  const startHour = 9   // salon opening time
+  const endHour = 20    // closing time
+
+  for (let hour = startHour; hour < endHour; hour++) {
+    for (let min of [0, 30]) {
+      const date = new Date()
+      date.setHours(hour)
+      date.setMinutes(min)
+
+      const value = `${String(hour).padStart(2, "0")}:${String(min).padStart(2, "0")}`
+
+      const label = date.toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      })
+
+      slots.push({ value, label })
+    }
+  }
+
+  return slots
 }
 
 
@@ -136,36 +163,52 @@ export function AppointmentsPage() {
   }
 
   async function handleAddAppointment() {
-  if (!newAppt.clientName || !newAppt.service || !newAppt.barberId) return
+  if (!newAppt.clientName || !newAppt.service || !newAppt.barberId) {
+    alert("Please fill required fields")
+    return
+  }
 
   const selectedService = services.find(
-  (s) => String(s.id) === newAppt.service
-)
+    (s) => String(s.id) === String(newAppt.service)
+  )
 
-
-  if (!selectedService) return
-
-  const totalSlots = selectedService.duration_minutes / 30
-
-  const { error } = await supabase.from("appointments").insert([
-    {
-      client_name: newAppt.clientName,
-      client_phone: newAppt.clientPhone,
-      barber_id: newAppt.barberId,
-      service_id: newAppt.service,
-      date: newAppt.date,
-      start_time: newAppt.time,
-      total_slots: totalSlots,
-      amount: selectedService.price,
-    },
-  ])
-
-  
-
-  if (!error) {
-    fetchData()
-    setShowAddModal(false)
+  if (!selectedService) {
+    alert("Service not found")
+    return
   }
+
+  const totalSlots =
+    selectedService.duration_minutes
+      ? selectedService.duration_minutes / 30
+      : 1
+
+  const { error } = await supabase
+    .from("appointments")
+    .insert([
+      {
+        client_name: newAppt.clientName,
+        client_phone: newAppt.clientPhone || "",
+        barber_id: newAppt.barberId,
+        service_id: newAppt.service,
+        date: newAppt.date,
+        start_time: newAppt.time,
+        total_slots: totalSlots,
+        amount: selectedService.price || 0,
+
+        // 🔥 IMPORTANT — ye 2 missing the
+        status: "upcoming",
+        payment_status: "pending",
+      },
+    ])
+
+  if (error) {
+    console.log(error)
+    alert(error.message)
+    return
+  }
+
+  fetchData()
+  setShowAddModal(false)
 }
 
 
@@ -389,20 +432,43 @@ export function AppointmentsPage() {
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Date</label>
                 <Input
-                  type="date"
-                  value={newAppt.date}
-                  onChange={(e) => setNewAppt({ ...newAppt, date: e.target.value })}
-                  className="border-border bg-background"
-                />
+  type="date"
+  value={newAppt.date}
+  onChange={(e) =>
+    setNewAppt({ ...newAppt, date: e.target.value })
+  }
+/>
+
+
               </div>
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Time</label>
-                <Input
-                  type="time"
-                  value={newAppt.time}
-                  onChange={(e) => setNewAppt({ ...newAppt, time: e.target.value })}
-                  className="border-border bg-background"
-                />
+                <Select
+  value={newAppt.time}
+  onValueChange={(v) =>
+    setNewAppt({ ...newAppt, time: v })
+  }
+>
+  <SelectTrigger className="border-border bg-background">
+    <SelectValue placeholder="Select time" />
+  </SelectTrigger>
+
+  <SelectContent
+  position="popper"
+  side="bottom"
+  align="start"
+  className="z-50 max-h-60 overflow-y-auto"
+>
+
+    {generateTimeSlots().map((slot) => (
+      <SelectItem key={slot.value} value={slot.value}>
+        {slot.label}
+      </SelectItem>
+    ))}
+  </SelectContent>
+</Select>
+
+
               </div>
             </div>
           </div>
